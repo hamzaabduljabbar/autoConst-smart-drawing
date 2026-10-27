@@ -1,0 +1,414 @@
+<meta charset="utf-8">
+<title>Smart Drawing</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Condensed:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+/* Layout: one-screen reader. Drawing fills the stage; a left rail holds search, filters and the selected item's schedule row. */
+:root {
+  --paper: #eef0ec;        /* drafting-film grey-green */
+  --panel: #f8f9f6;
+  --ink: #1d2422;
+  --ink-2: #56605c;
+  --line: #d3d8d2;
+  --accent: #b5371f;       /* redline */
+  --room: #1f5fbf;
+  --door: #c2381c;
+  --window: #0f8a84;
+  --wall: #4f8a2a;
+  --callout: #c27a00;
+  --dim: rgba(238,240,236,.78);
+  --sel: rgba(181,55,31,.16);
+  --stage: #dfe3dd;
+  --f-ui: "IBM Plex Sans Condensed", "Arial Narrow", system-ui, sans-serif;
+  --f-tag: "IBM Plex Mono", ui-monospace, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --paper: #151a19; --panel: #1b2120; --ink: #e5e9e4; --ink-2: #9aa59f; --line: #2d3532;
+  --accent: #ef7a5d; --room: #6ea2ff; --door: #ff7b5c; --window: #3fd0c6; --wall: #8fd35d; --callout: #ffb84a;
+  --dim: rgba(21,26,25,.80); --sel: rgba(239,122,93,.18); --stage: #0f1312; color-scheme: dark } }
+:root[data-theme="dark"] {
+  --paper: #151a19; --panel: #1b2120; --ink: #e5e9e4; --ink-2: #9aa59f; --line: #2d3532;
+  --accent: #ef7a5d; --room: #6ea2ff; --door: #ff7b5c; --window: #3fd0c6; --wall: #8fd35d; --callout: #ffb84a;
+  --dim: rgba(21,26,25,.80); --sel: rgba(239,122,93,.18); --stage: #0f1312; color-scheme: dark }
+
+html, body { height: 100%; }
+body { background: var(--paper); color: var(--ink); font-family: var(--f-ui); font-size: 14px; overflow: hidden; }
+body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-area-inset-top, 0px); z-index: 10; background: var(--panel); }
+.app { height: 100%; display: grid; grid-template-columns: 340px 1fr; grid-template-rows: auto 1fr; }
+header { grid-column: 1 / -1; display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
+  padding-block: 10px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+  background: var(--panel); border-bottom: 1px solid var(--line); }
+.brand { display: flex; flex-direction: column; min-width: 0; }
+.brand b { font-size: 17px; font-weight: 700; letter-spacing: .01em; }
+.brand span { color: var(--ink-2); font-size: 12px; }
+.tabs { display: flex; gap: 4px; flex-wrap: wrap; margin-left: auto; }
+.tab { font-family: var(--f-tag); font-size: 12px; font-weight: 600; border: 1px solid var(--line); background: transparent; color: var(--ink);
+  padding: 5px 9px; border-radius: 3px; cursor: pointer; }
+.tab[aria-pressed="true"] { background: var(--ink); color: var(--panel); border-color: var(--ink); }
+.tab:focus-visible, button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+aside { background: var(--panel); border-right: 1px solid var(--line); display: flex; flex-direction: column; min-height: 0; min-width: 0;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: 16px; padding-block: 14px; gap: 14px; overflow-y: auto; }
+.search { display: flex; gap: 6px; }
+.search input { flex: 1; min-width: 0; font: 500 15px var(--f-tag); padding: 9px 10px; border: 1px solid var(--line); border-radius: 4px;
+  background: var(--paper); color: var(--ink); }
+.hint { color: var(--ink-2); font-size: 12px; line-height: 1.4; }
+.hint code { font-family: var(--f-tag); color: var(--ink); }
+.label { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .08em; color: var(--ink-2); }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--line); background: transparent; color: var(--ink);
+  font: 500 13px var(--f-ui); padding: 5px 9px; border-radius: 999px; cursor: pointer; font-variant-numeric: tabular-nums; }
+.chip i { width: 9px; height: 9px; border-radius: 2px; background: var(--c); }
+.chip[aria-pressed="false"] { opacity: .45; }
+.chip small { color: var(--ink-2); font-size: 12px; }
+.toggle { display: flex; align-items: center; gap: 8px; font-size: 13px; cursor: pointer; }
+
+.results { display: flex; flex-direction: column; border-top: 1px solid var(--line); }
+.res { display: grid; grid-template-columns: 58px 1fr auto; gap: 8px; align-items: baseline; padding: 7px 4px; border-bottom: 1px solid var(--line);
+  background: transparent; border-left: 0; border-right: 0; border-top: 0; color: var(--ink); text-align: left; cursor: pointer; font: 14px var(--f-ui); }
+.res:hover { background: var(--sel); }
+.res .k { font-family: var(--f-tag); font-weight: 600; color: var(--c); }
+.res .n { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.res .s { color: var(--ink-2); font-size: 12px; font-family: var(--f-tag); }
+
+.card { border: 1px solid var(--line); border-radius: 6px; background: var(--paper); overflow: hidden; }
+.card h2 { margin: 0; padding: 12px 14px 4px; font-size: 20px; font-weight: 700; display: flex; gap: 10px; align-items: baseline; text-wrap: balance; }
+.card h2 .k { font-family: var(--f-tag); color: var(--c); }
+.card .sub { padding: 0 14px 10px; color: var(--ink-2); font-size: 13px; display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.pill { font: 600 11px var(--f-tag); padding: 2px 6px; border-radius: 3px; border: 1px solid currentColor; }
+.pill.high { color: var(--wall); }
+.pill.med { color: var(--callout); }
+.kv { display: grid; grid-template-columns: 128px 1fr; border-top: 1px solid var(--line); }
+.kv div { padding: 6px 14px; border-bottom: 1px solid var(--line); min-width: 0; }
+.kv div:nth-child(odd) { color: var(--ink-2); font-size: 12px; padding-right: 4px; }
+.kv .v { font-family: var(--f-tag); font-size: 13px; }
+.kv .v em { display: block; font-family: var(--f-ui); font-style: normal; color: var(--ink-2); font-size: 12px; line-height: 1.35; margin-top: 2px; }
+.link { background: none; border: 0; padding: 0; font: inherit; color: var(--accent); text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
+.card .foot { padding: 10px 14px; display: flex; gap: 8px; flex-wrap: wrap; }
+.btn { border: 1px solid var(--line); background: var(--panel); color: var(--ink); font: 500 13px var(--f-ui); padding: 6px 10px; border-radius: 4px; cursor: pointer; }
+
+main { position: relative; overflow: hidden; background: var(--stage); touch-action: none; min-width: 0; }
+.stage { position: absolute; left: 0; top: 0; transform-origin: 0 0; }
+.stage img { display: block; max-width: none; user-select: none; -webkit-user-drag: none; }
+.veil { position: absolute; inset: 0; background: var(--dim); pointer-events: none; }
+.mk { position: absolute; border: 2px solid var(--c); border-radius: 3px; background: color-mix(in srgb, var(--c) 12%, transparent);
+  cursor: pointer; padding: 0; }
+.mk.hit { background: color-mix(in srgb, var(--c) 30%, transparent); box-shadow: 0 0 0 4px color-mix(in srgb, var(--c) 35%, transparent); }
+.mk.sel { box-shadow: 0 0 0 5px var(--accent); }
+@keyframes pulse { 0% { box-shadow: 0 0 0 0 var(--accent); } 100% { box-shadow: 0 0 0 26px transparent; } }
+.mk.flash { animation: pulse 1s ease-out 2; }
+.hud { position: absolute; right: max(12px, env(safe-area-inset-right, 0px)); bottom: max(12px, env(safe-area-inset-bottom, 0px)); display: flex; gap: 4px; }
+.hud button { width: 36px; height: 36px; border: 1px solid var(--line); background: var(--panel); color: var(--ink); border-radius: 4px; font: 600 16px var(--f-ui); cursor: pointer; }
+.count { position: absolute; left: 12px; top: 12px; background: var(--panel); border: 1px solid var(--line); border-radius: 4px; padding: 6px 10px;
+  font-size: 13px; font-variant-numeric: tabular-nums; max-width: calc(100% - 24px); }
+.count b { font-family: var(--f-tag); }
+.toast { position: absolute; left: 50%; top: 12px; transform: translateX(-50%); background: var(--ink); color: var(--panel); padding: 7px 12px; border-radius: 4px; font-size: 13px; }
+
+@media (max-width: 760px) {
+  .app { grid-template-columns: 1fr; grid-template-rows: auto 55% 1fr; }
+  main { grid-row: 2; }
+  aside { grid-row: 3; border-right: 0; border-top: 1px solid var(--line); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+  .tabs { margin-left: 0; }
+}
+.stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-top: 8px; }
+.stats div { border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; }
+.stats b { display: block; font-size: 18px; font-variant-numeric: tabular-nums; color: var(--c, var(--ink)); }
+.stats small { color: var(--ink-2); font-size: 11px; }
+@media (prefers-reduced-motion: reduce) { .mk.flash { animation: none; } }
+</style>
+
+<div class="app">
+  <header>
+    <div class="brand"><b>Smart Drawing</b><span id="proj"></span></div>
+    <nav class="tabs" id="tabs" aria-label="Sheets"></nav>
+  </header>
+
+  <aside>
+    <div>
+      <div class="label">Whole set</div>
+      <div class="stats" id="stats"></div>
+    </div>
+    <form class="search" id="sf">
+      <input id="q" type="search" placeholder="Search a door, room, window, wall type or finish" autocomplete="off" aria-label="Search tags">
+    </form>
+    <div class="hint" id="hint"></div>
+
+    <div>
+      <div class="label">Show on drawing</div>
+      <div class="chips" id="chips" style="margin-top:8px"></div>
+      <label class="toggle" style="margin-top:10px"><input type="checkbox" id="focus"> Fade the drawing (declutter)</label>
+    </div>
+
+    <div id="detail"></div>
+    <div>
+      <div class="label" id="rlabel">On this sheet</div>
+      <div class="results" id="results" style="margin-top:6px"></div>
+    </div>
+  </aside>
+
+  <main id="main">
+    <div class="stage" id="stage"><img id="img" alt=""><div class="veil" id="veil" hidden></div><div id="marks"></div></div>
+    <div class="count" id="count"></div>
+    <div class="toast" id="toast" hidden></div>
+    <div class="hud">
+      <button id="zin" aria-label="Zoom in">+</button><button id="zout" aria-label="Zoom out">−</button><button id="fit" aria-label="Fit sheet">⤢</button>
+    </div>
+  </main>
+</div>
+
+<script src="data.js"></script>
+<script>
+const D = window.ARCH;
+const KINDS = {
+  room:    { label: "Rooms",      one: "Room",      c: "--room" },
+  door:    { label: "Doors",      one: "Door",      c: "--door" },
+  window:  { label: "Windows",    one: "Window",    c: "--window" },
+  wall:    { label: "Wall types", one: "Wall type", c: "--wall" },
+  callout: { label: "Callouts",   one: "Callout",   c: "--callout" },
+};
+const REF = /(\d{1,2})\s*\/\s*([A-Z]{1,2}-?\d{3}[A-Z]?)/g;
+const byNum = Object.fromEntries(D.all_sheets.map(s => [s.number, s]));
+const sheetByPage = Object.fromEntries(D.sheets.map(s => [s.page, s]));
+const anyByPage = Object.fromEntries(D.all_sheets.map(s => [s.page, s]));
+const ITEMS = { room: {}, door: {}, window: {}, wall: {} };
+D.items.forEach(it => { ITEMS[it.kind][it.key] = it; });
+const mats = {}; D.materials.forEach(m => { mats[m.code] = m; });
+
+const MARKS = D.tags.map(t => ({ ...t })).concat(D.callouts.map(c => ({ kind: "callout", key: c.label, item: c.label, page: c.page, x: c.x, y: c.y, w: c.w, h: c.h, target: c.target_sheet, tpage: c.target_page })));
+const tagCount = p => MARKS.filter(m => m.page === p && m.kind !== "callout").length;
+let cur = D.sheets.slice().sort((a, b) => tagCount(b.page) - tagCount(a.page))[0];
+let show = { room: true, door: true, window: true, wall: true, callout: false };
+let hits = new Set(), selected = null;
+let view = { s: 1, x: 0, y: 0 };
+
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const color = k => `var(${KINDS[k].c})`;
+const title = s => s.toLowerCase().replace(/(^|\s|\()([a-z])/g, (m, a, b) => a + b.toUpperCase()).replace(/\bNo\b/, "No.");
+
+$("proj").textContent = D.project;
+(() => {  // counts for the whole set, straight from the schedules
+  const n = k => Object.keys(ITEMS[k]).length;
+  const st = [["Sheets", D.all_sheets.length], ["Doors", n("door"), "--door"], ["Rooms", n("room"), "--room"],
+              ["Windows", n("window"), "--window"], ["Wall types", n("wall"), "--wall"], ["Finishes", D.materials.length]];
+  $("stats").innerHTML = st.filter(s => s[1]).map(([l, v, c]) => `<div${c ? ` style="--c:var(${c})"` : ""}><b>${v}</b><small>${l}</small></div>`).join("");
+})();
+(() => {  // hint built from real keys in this set
+  const ex = k => { const t = MARKS.find(m => m.kind === k && m.page === cur.page) || MARKS.find(m => m.kind === k); return t && t.key; };
+  const mat = Object.keys(mats).find(c => /^(CPT|LVT|SC|P)-\d/.test(c)) || Object.keys(mats)[0];
+  const parts = [["door", ex("door")], ["room", ex("room")], ["window", ex("window")], ["wall type", ex("wall")], ["finish", mat]].filter(p => p[1]);
+  $("hint").innerHTML = "Try " + parts.map(([k, v]) => `<code>${esc(v)}</code> (${k})`).join(", ") + ".";
+})();
+
+function tabs() {
+  $("tabs").innerHTML = D.sheets.map(s => `<button class="tab" aria-pressed="${s === cur}" title="${esc(s.title)}" data-p="${s.page}">${s.number}</button>`).join("");
+}
+$("tabs").onclick = e => { const b = e.target.closest(".tab"); if (b) go(+b.dataset.p); };
+
+function chips() {
+  const onSheet = k => MARKS.filter(m => m.page === cur.page && m.kind === k).length;
+  $("chips").innerHTML = Object.entries(KINDS).map(([k, v]) =>
+    `<button class="chip" style="--c:${color(k)}" aria-pressed="${show[k]}" data-k="${k}"><i></i>${v.label} <small>${onSheet(k)}</small></button>`).join("");
+}
+$("chips").onclick = e => { const b = e.target.closest(".chip"); if (!b) return; show[b.dataset.k] = !show[b.dataset.k]; render(); };
+$("focus").onchange = () => { $("veil").hidden = !$("focus").checked; };
+
+// ---------- drawing ----------
+function go(page, then) {
+  const s = sheetByPage[page]; if (!s) return;
+  const changed = s !== cur; cur = s;
+  const img = $("img");
+  if (changed || !img.src) {
+    img.onload = () => { fit(); render(); then && then(); };
+    img.src = s.data || s.img; img.width = s.px[0]; img.height = s.px[1];
+    $("stage").style.width = s.px[0] + "px"; $("stage").style.height = s.px[1] + "px";
+  } else { render(); then && then(); }
+  tabs();
+}
+function render() {
+  chips();
+  const [W, H] = cur.px;
+  const ms = MARKS.filter(m => m.page === cur.page && (show[m.kind] || hits.has(m)));
+  $("marks").innerHTML = ms.map(m => {
+    const pad = 3, cls = ["mk", hits.has(m) ? "hit" : "", selected && selected.kind === m.kind && selected.item === m.item ? "sel" : ""].join(" ");
+    return `<button class="${cls}" data-i="${MARKS.indexOf(m)}" title="${esc(label(m))}" style="--c:${color(m.kind)};left:${m.x * W - pad}px;top:${m.y * H - pad}px;width:${m.w * W + 2 * pad}px;height:${m.h * H + 2 * pad}px"></button>`;
+  }).join("");
+  const uniq = k => new Set(MARKS.filter(m => m.page === cur.page && m.kind === k).map(m => m.item)).size;
+  const n = k => MARKS.filter(m => m.page === cur.page && m.kind === k).length;
+  $("count").innerHTML = `<b>${esc(cur.number)}</b> ${esc(cur.title)} · ${uniq("room")} rooms · ${uniq("door")} doors · ${n("window")} window tags · ${n("wall")} wall tags`;
+  if (!$("q").value.trim()) listSheet();
+  apply();
+}
+function label(m) {
+  const it = ITEMS[m.kind]?.[m.item];
+  return m.kind === "callout" ? `Detail ${m.key}` : `${KINDS[m.kind].one} ${m.key}${it?.name ? " · " + it.name : ""}`;
+}
+$("marks").onclick = e => { const b = e.target.closest(".mk"); if (b) pick(MARKS[+b.dataset.i]); };
+
+// ---------- pan / zoom ----------
+function apply() { $("stage").style.transform = `translate(${view.x}px,${view.y}px) scale(${view.s})`; }
+function fit() {
+  const r = $("main").getBoundingClientRect(), [W, H] = cur.px;
+  view.s = Math.min(r.width / W, r.height / H) * 0.98;
+  view.x = (r.width - W * view.s) / 2; view.y = (r.height - H * view.s) / 2; apply();
+}
+function zoomAt(f, cx, cy) {
+  const s = Math.min(3, Math.max(0.04, view.s * f)); f = s / view.s;
+  view.x = cx - (cx - view.x) * f; view.y = cy - (cy - view.y) * f; view.s = s; apply();
+}
+function centerOn(m, scale) {
+  const r = $("main").getBoundingClientRect(), [W, H] = cur.px;
+  view.s = scale || Math.max(view.s, 0.6);
+  view.x = r.width / 2 - (m.x + m.w / 2) * W * view.s; view.y = r.height / 2 - (m.y + m.h / 2) * H * view.s; apply();
+}
+const main = $("main"), ptrs = new Map(); let last = null, pinch = null, moved = 0;
+main.addEventListener("wheel", e => { e.preventDefault(); const r = main.getBoundingClientRect(); zoomAt(Math.exp(-e.deltaY * 0.0015), e.clientX - r.left, e.clientY - r.top); }, { passive: false });
+main.addEventListener("pointerdown", e => { if (e.target.closest(".hud")) return; ptrs.set(e.pointerId, e); moved = 0; last = { x: e.clientX, y: e.clientY };
+  if (ptrs.size === 2) { const [a, b] = [...ptrs.values()]; pinch = Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY); } });
+main.addEventListener("pointermove", e => {
+  if (!ptrs.has(e.pointerId)) return; ptrs.set(e.pointerId, e);
+  if (ptrs.size === 2) { const [a, b] = [...ptrs.values()], d = Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY), r = main.getBoundingClientRect();
+    zoomAt(d / pinch, (a.clientX + b.clientX) / 2 - r.left, (a.clientY + b.clientY) / 2 - r.top); pinch = d; moved = 99; return; }
+  const dx = e.clientX - last.x, dy = e.clientY - last.y; moved += Math.abs(dx) + Math.abs(dy);
+  if (moved > 4) { main.setPointerCapture(e.pointerId); view.x += dx; view.y += dy; apply(); }
+  last = { x: e.clientX, y: e.clientY };
+});
+const up = e => { ptrs.delete(e.pointerId); pinch = null; };
+main.addEventListener("pointerup", up); main.addEventListener("pointercancel", up);
+main.addEventListener("click", e => { if (moved > 4) { e.stopPropagation(); e.preventDefault(); } }, true);
+$("zin").onclick = () => { const r = main.getBoundingClientRect(); zoomAt(1.4, r.width / 2, r.height / 2); };
+$("zout").onclick = () => { const r = main.getBoundingClientRect(); zoomAt(1 / 1.4, r.width / 2, r.height / 2); };
+$("fit").onclick = fit;
+addEventListener("resize", fit);
+
+// ---------- material codes ----------
+// "LVT-1/2" -> [LVT-1, LVT-2]; "SC-1, EPX-1" -> [SC-1, EPX-1]; "GWB (PT-1)" -> [GWB, PT-1]
+function codes(v) {
+  let prefix = "";
+  return String(v || "").replace(/[(),]/g, " ").split(/[\/\s]+/).filter(Boolean).map(t => {
+    if (/^[A-Z]+-\d+[A-Z]?$/.test(t)) { prefix = t.split("-")[0]; return t; }
+    return /^\d+$/.test(t) && prefix ? prefix + "-" + t : t;
+  });
+}
+const roomsUsing = code => Object.values(ITEMS.room).filter(r => Object.values(r.data).some(v => codes(v).includes(code)));
+
+// ---------- search ----------
+function search(q) {
+  q = q.trim().toUpperCase(); if (!q) return [];
+  const out = [];
+  for (const kind of ["door", "room", "window", "wall"])
+    for (const it of Object.values(ITEMS[kind]))
+      if (it.key.toUpperCase().startsWith(q) || (q.length > 2 && (it.name || "").toUpperCase().includes(q))) out.push({ kind, key: it.key, name: it.name });
+  const wt = /^([A-Z])(\d{1,2})$/.exec(q);  // partition tag: type letter + suffix
+  if (wt && ITEMS.wall[wt[1]]) out.unshift({ kind: "wall", key: q, item: wt[1], name: `${ITEMS.wall[wt[1]].name} · suffix ${wt[2]}` });
+  Object.values(mats).forEach(m => { if (m.code.startsWith(q)) out.push({ kind: "mat", key: m.code, name: m.description.split(" | ")[0] }); });
+  return out.slice(0, 80);
+}
+const occ = (kind, item) => MARKS.filter(m => m.kind === kind && m.item === item);
+
+function listResults(rs, label) {
+  $("rlabel").textContent = label || (rs.length ? `${rs.length}${rs.length === 80 ? "+" : ""} match${rs.length > 1 ? "es" : ""}` : "No matches");
+  $("results").innerHTML = rs.map((r, i) => {
+    let s, c;
+    if (r.kind === "mat") { s = roomsUsing(r.key).length + " rooms"; c = "var(--accent)"; }
+    else { const os = occ(r.kind, r.item || r.key).filter(o => !r.item || o.key === r.key); s = os.length ? [...new Set(os.map(m => sheetByPage[m.page].number))].join(" ") : "schedule only"; c = color(r.kind); }
+    return `<button class="res" data-i="${i}" style="--c:${c}"><span class="k">${esc(r.key)}</span><span class="n">${esc(r.name)}</span><span class="s">${esc(s)}</span></button>`;
+  }).join("");
+  $("results").onclick = e => { const b = e.target.closest(".res"); if (b) choose(rs[+b.dataset.i]); };
+}
+function listSheet() {
+  const seen = new Set(), rs = [];
+  MARKS.filter(m => m.page === cur.page && m.kind !== "callout").sort((a, b) => a.kind.localeCompare(b.kind) || a.item.localeCompare(b.item)).forEach(m => {
+    const id = m.kind + m.item; if (seen.has(id)) return; seen.add(id);
+    rs.push({ kind: m.kind, key: m.item, name: ITEMS[m.kind][m.item]?.name || "" });
+  });
+  listResults(rs, rs.length ? `Tagged on ${cur.number} (${rs.length})` : `Nothing tagged on ${cur.number}`);
+}
+$("q").addEventListener("input", () => { const q = $("q").value; if (!q.trim()) { hits.clear(); render(); return; } const rs = search(q); listResults(rs); const exact = rs.find(r => r.key.toUpperCase() === q.trim().toUpperCase()); if (exact || rs.length === 1) choose(exact || rs[0]); });
+$("sf").onsubmit = e => { e.preventDefault(); const rs = search($("q").value); if (rs.length) choose(rs[0]); };
+
+// ---------- select ----------
+function choose(r) { r.kind === "mat" ? showMaterial(r.key) : pick({ kind: r.kind, item: r.item || r.key, key: r.key, page: null }); }
+function pick(m) {
+  selected = { kind: m.kind, item: m.item };
+  if (m.kind === "callout") return calloutCard(m);
+  const os = occ(m.kind, m.item);
+  hits = new Set(m.kind === "wall" && m.key !== m.item ? os.filter(o => o.key === m.key) : os);
+  card(m.kind, m.item, os, m.key);
+  const pool = [...hits];
+  const per = {}; pool.forEach(o => { per[o.page] = (per[o.page] || 0) + 1; });
+  const busiest = pool.slice().sort((a, b) => per[b.page] - per[a.page])[0];  // the plan where it appears most
+  const here = pool.find(o => o.page === cur.page) || (m.page != null && pool.find(o => o.page === m.page)) || busiest;
+  if (here) go(here.page, () => { centerOn(here); flash(); });
+  else { render(); toast("Not tagged on the sheets in this viewer"); }
+}
+function flash() { requestAnimationFrame(() => document.querySelectorAll(".mk.hit").forEach(el => { el.classList.remove("flash"); void el.offsetWidth; el.classList.add("flash"); })); }
+function toast(t) { const el = $("toast"); el.textContent = t; el.hidden = false; clearTimeout(toast.t); toast.t = setTimeout(() => el.hidden = true, 2600); }
+
+// a schedule value with its material codes decoded, sheet references linked and room numbers linked
+function val(v) {
+  if (!v || /^[-–—\s]+$/.test(v)) return `<span class="v">—</span>`;
+  let h = esc(v).replace(REF, (all, n, sh) => {
+    const s = byNum[sh];
+    return s && sheetByPage[s.page] ? `<button class="link" data-go="${s.page}">${n}/${sh}</button>` : `${n}/${sh}<span class="hint"> (not in viewer)</span>`;
+  });
+  h = h.replace(/\b([A-Z]{0,2}\d{3,5}):/g, (all, k) => ITEMS.room[k] ? `<button class="link" data-room="${k}">${k}</button>:` : all);
+  const descs = [...new Set(codes(v))].filter(k => mats[k] && mats[k].category !== "Abbreviation").map(k => `${k}: ${mats[k].description.split(" | ").slice(0, 3).join(" · ")}`);
+  return `<span class="v">${h}${descs.map(d => `<em>${esc(d)}</em>`).join("")}</span>`;
+}
+function onSheets(os) {
+  const by = {}; os.forEach(o => { const n = sheetByPage[o.page].number; by[n] = (by[n] || 0) + 1; });
+  return Object.entries(by).map(([n, k]) => `<button class="btn" data-go="${byNum[n].page}" data-hl="1">${n}${k > 1 ? " ×" + k : ""}</button>`).join("");
+}
+function card(kind, key, os, tag) {
+  const it = ITEMS[kind][key];
+  if (!it) { $("detail").innerHTML = ""; return; }
+  const src = anyByPage[it.page]?.number || "";
+  let rows = Object.entries(it.data).filter(([k, v]) => v && !/^[-–—\s]+$/.test(v)).map(([k, v]) => [title(k), val(v)]);
+  if (kind === "wall" && tag && tag !== key) {
+    const suf = it.data["SUFFIX " + tag.slice(1)];
+    rows.unshift(["Tag " + tag, `<span class="v">${esc(suf || "Suffix " + tag.slice(1))}</span>`]);
+  }
+  if (kind === "room") {
+    const ds = Object.values(ITEMS.door).filter(d => Object.values(d.data).some(v => new RegExp(`\\b${key}\\b`).test(v)) || (/^\d+$/.test(key) && d.key.startsWith(key)));
+    if (ds.length) rows.push(["Doors", ds.map(d => `<button class="link" data-door="${d.key}">${d.key}</button>`).join(" ")]);
+  }
+  const shown = new Set(os.map(o => o.key));
+  $("detail").innerHTML = `<div class="card" style="--c:${color(kind)}"><h2><span class="k">${esc(tag || key)}</span>${esc(it.name || KINDS[kind].one)}</h2>
+    <div class="sub"><span>${esc(it.source)} · ${esc(src)}</span><span class="pill ${it.confidence === "HIGH" ? "high" : "med"}">${it.confidence}</span></div>
+    <div class="kv">${rows.map(([a, b]) => `<div>${esc(a)}</div><div>${b}</div>`).join("")}</div>
+    <div class="foot">${os.length ? `<span class="hint" style="align-self:center">Tagged on</span>${onSheets(kind === "wall" && tag !== key ? os.filter(o => o.key === tag) : os)}` : `<span class="hint">Not tagged on the sheets in this viewer</span>`}
+    ${sheetByPage[it.page] ? `<button class="btn" data-go="${it.page}">Schedule on ${esc(src)}</button>` : ""}</div></div>`;
+}
+function calloutCard(m) {
+  hits = new Set([m]); render();
+  const t = m.tpage != null && sheetByPage[m.tpage];
+  $("detail").innerHTML = `<div class="card" style="--c:${color("callout")}"><h2><span class="k">${esc(m.key)}</span>Detail ${esc(m.key.split("/")[0])}</h2>
+    <div class="sub"><span>Callout on ${esc(cur.number)}</span></div><div class="kv"><div>Points to</div><div><span class="v">${esc(m.target)} ${esc(byNum[m.target]?.title || "")}</span></div></div>
+    <div class="foot">${t ? `<button class="btn" data-go="${m.tpage}">Open ${esc(m.target)}</button>` : `<span class="hint">${esc(m.target)} is not one of the sheets in this viewer</span>`}</div></div>`;
+}
+function showMaterial(code) {
+  const m = mats[code], rs = roomsUsing(code);
+  selected = null; hits = new Set(rs.flatMap(r => occ("room", r.key)));
+  const lines = m.description.split(" | ");
+  $("detail").innerHTML = `<div class="card" style="--c:var(--accent)"><h2><span class="k">${esc(code)}</span>${esc(m.category ? title(m.category) : "Material")}</h2>
+    <div class="sub"><span>Legend · ${esc(anyByPage[m.page]?.number || "")}</span></div>
+    <div class="kv">${lines.map((x, i) => { const [a, ...b] = x.split(": "); return b.length ? `<div>${esc(title(a))}</div><div><span class="v">${esc(b.join(": "))}</span></div>` : `<div>${i ? "" : "Product"}</div><div><span class="v">${esc(a)}</span></div>`; }).join("")}
+    <div>Used in</div><div>${rs.length ? rs.slice(0, 60).map(r => `<button class="link" data-room="${r.key}">${r.key}</button>`).join(" ") + (rs.length > 60 ? ` +${rs.length - 60} more` : "") : `<span class="v">—</span>`}</div></div></div>`;
+  const best = [...hits].reduce((acc, h) => { acc[h.page] = (acc[h.page] || 0) + 1; return acc; }, {});
+  const pg = Object.keys(best).sort((a, b) => best[b] - best[a])[0];
+  go(pg != null ? +pg : cur.page, () => { render(); flash(); toast(`${code} is used in ${rs.length} room${rs.length === 1 ? "" : "s"}`); });
+}
+$("detail").onclick = e => {
+  const b = e.target.closest("[data-go],[data-room],[data-door]"); if (!b) return;
+  if (b.dataset.room) return pick({ kind: "room", item: b.dataset.room, key: b.dataset.room, page: null });
+  if (b.dataset.door) return pick({ kind: "door", item: b.dataset.door, key: b.dataset.door, page: null });
+  const p = +b.dataset.go;
+  go(p, () => { const h = [...hits].find(x => x.page === p); h && b.dataset.hl ? (centerOn(h), flash()) : fit(); });
+};
+
+go(cur.page, () => {
+  const d = MARKS.find(m => m.kind === "door" && m.page === cur.page);
+  if (d) { $("q").value = d.key; $("q").dispatchEvent(new Event("input")); }
+});
+</script>
